@@ -2,6 +2,7 @@
 extern crate lazy_static;
 
 use crate::Domaine::*;
+use rand::{seq::SliceRandom, thread_rng};
 use std::{collections::HashMap, fmt::Display, ops::Add, slice::Iter};
 
 lazy_static! {
@@ -26,6 +27,11 @@ lazy_static! {
     };
     static ref REPARTITIONS: Vec<Repartition> = {
         vec![
+            Repartition(A, A, A, C),
+            Repartition(C, C, C, E),
+            Repartition(E, E, E, N),
+            Repartition(N, N, N, O),
+            Repartition(O, O, O, A),
             Repartition(A, C, E, N),
             Repartition(A, C, E, N),
             Repartition(A, A, C, E),
@@ -100,7 +106,7 @@ lazy_static! {
     };
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Repartition(pub Domaine, pub Domaine, pub Domaine, pub Domaine);
 
 #[derive(Debug, Clone, PartialEq, Hash, Eq)]
@@ -299,12 +305,37 @@ fn main() {
     // println!("{:?}", *FACETTES);
     // println!("{:?}", *PHRASES);
 
+    loop {
+        let (all_valid_quadruplet, nbr_of_unused_questions) = compute();
+
+        all_valid_quadruplet.iter().for_each(|f| println!("{}", f));
+        println!("Nbr of unused question {}", nbr_of_unused_questions);
+
+        if nbr_of_unused_questions == 0 {
+            break;
+        }
+    }
+}
+
+fn compute() -> (Vec<Quadruplet<'static>>, u8) {
     let mut all_quadrupletes: Vec<Result<Quadruplet, ()>> = vec![];
-
-    let mut hashmap: HashMap<&Phrase, u8> =
+    let mut usage_hashmap: HashMap<&Phrase, u8> =
         PHRASES.iter().map(|p| (p, 0)).collect::<HashMap<_, _>>();
-
-    for repartition in REPARTITIONS.iter() {
+    let mut facette_tuples: Vec<(&Facette, &Facette)> = vec![];
+    for index1 in 0..PHRASES.len() {
+        for index2 in index1 + 1..PHRASES.len() {
+            let tupple = (PHRASES[index1].0, PHRASES[index2].0);
+            facette_tuples.push(tupple);
+        }
+    }
+    let mut compare_hashmap: HashMap<&(&Facette, &Facette), u8> = facette_tuples
+        .iter()
+        .map(|p| (p, 0))
+        .collect::<HashMap<_, _>>();
+    let mut repartitions = REPARTITIONS.clone();
+    repartitions.shuffle(&mut thread_rng());
+    println!("{:?}", repartitions);
+    for repartition in repartitions.iter() {
         let mut phrases: Vec<&Phrase> = vec![];
         for domaine in [
             &repartition.0,
@@ -312,49 +343,78 @@ fn main() {
             &repartition.2,
             &repartition.3,
         ] {
-            let p: &Phrase = get_phrase(&hashmap, domaine, &phrases);
-            let val = hashmap.get(p).unwrap();
-            hashmap.insert(p, val + 1);
-            phrases.push(p);
+            let mut domain_phrases: Vec<&Phrase> = PHRASES
+                .iter()
+                .filter(|&p| p.0 .0 == domaine)
+                .filter(|p| phrases.iter().all(|a| p.valid_with(a)))
+                .collect();
+
+            domain_phrases.sort_by(|a, b| {
+                let nbr_of_use_a = usage_hashmap.get(a).unwrap();
+                let nbr_of_use_b = usage_hashmap.get(b).unwrap();
+                nbr_of_use_a.partial_cmp(nbr_of_use_b).unwrap()
+            });
+
+            let min_val = *usage_hashmap.get(domain_phrases.first().unwrap()).unwrap();
+
+            let mut domain_phrases: Vec<&Phrase> = domain_phrases
+                .into_iter()
+                .filter(|p| usage_hashmap[p] == min_val)
+                .collect();
+
+            let mut sorted_phrases: Vec<(&Phrase, u8)> = domain_phrases
+                .into_iter()
+                .map(|el| {
+                    let mut acc = 0;
+                    for p in phrases.clone() {
+                        let p1 = compare_hashmap.get(&(el.0, p.0));
+                        let p2 = compare_hashmap.get(&(p.0, el.0));
+
+                        let curr = p1.or(p2).unwrap();
+
+                        acc += curr;
+                    }
+                    (el, acc)
+                })
+                .collect();
+
+            sorted_phrases.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+
+            let added_phrase = &sorted_phrases.first().unwrap().0;
+            phrases.push(added_phrase);
+
+            *usage_hashmap.get_mut(added_phrase).unwrap() += 1;
+
+            for i in 0..phrases.len() - 1 {
+                let prev_phrase = phrases[i];
+                match compare_hashmap.get_mut(&(prev_phrase.0, added_phrase.0)) {
+                    Some(val) => *val += 1,
+                    None => (),
+                };
+                match compare_hashmap.get_mut(&(added_phrase.0, prev_phrase.0)) {
+                    Some(val) => *val += 1,
+                    None => (),
+                };
+            }
         }
 
         let value = Quadruplet::new([phrases[0], phrases[1], phrases[2], phrases[3]]);
         all_quadrupletes.push(value);
     }
-
     let all_valid_quadruplet: Vec<Quadruplet> = all_quadrupletes
         .into_iter()
         .filter_map(|q| q.ok())
         .collect();
 
     println!("number of result {}", all_valid_quadruplet.len());
-    for (phrase, nbr) in hashmap {
-        println!("{}:{}", phrase, nbr);
+    let mut nbr_of_unused_questions = 0;
+    for (phrase, nbr) in usage_hashmap {
+        if nbr == 0 {
+            nbr_of_unused_questions += 1;
+        }
+        //println!("{}:{}", phrase, nbr);
     }
-
-    all_valid_quadruplet.iter().for_each(|f| println!("{}", f))
-
-    //println!("{:?}", all_valid_quadruplet);
-}
-
-fn get_phrase<'a>(
-    hashmap: &HashMap<&'a Phrase, u8>,
-    repartition: &Domaine,
-    phrases: &Vec<&Phrase>,
-) -> &'a Phrase<'a> {
-    let mut phrases_of_domaine: Vec<&Phrase<'a>> = PHRASES
-        .iter()
-        .filter(|&p| p.0 .0 == repartition)
-        .filter(|p| phrases.iter().all(|a| p.valid_with(a)))
-        .collect();
-
-    phrases_of_domaine.sort_by(|a, b| {
-        let nbr_of_use_a = hashmap.get(a).unwrap();
-        let nbr_of_use_b = hashmap.get(b).unwrap();
-        nbr_of_use_a.partial_cmp(nbr_of_use_b).unwrap()
-    });
-
-    phrases_of_domaine[0]
+    (all_valid_quadruplet, nbr_of_unused_questions)
 }
 
 #[cfg(test)]
