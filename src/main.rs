@@ -2,7 +2,6 @@
 extern crate lazy_static;
 
 use crate::Domaine::*;
-use rand::{seq::SliceRandom, thread_rng};
 use std::{collections::HashMap, fmt::Display, ops::Add, slice::Iter};
 
 lazy_static! {
@@ -106,7 +105,7 @@ lazy_static! {
     };
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct Repartition(pub Domaine, pub Domaine, pub Domaine, pub Domaine);
 
 #[derive(Debug, Clone, PartialEq, Hash, Eq)]
@@ -305,16 +304,10 @@ fn main() {
     // println!("{:?}", *FACETTES);
     // println!("{:?}", *PHRASES);
 
-    loop {
-        let (all_valid_quadruplet, nbr_of_unused_questions) = compute();
+    let (all_valid_quadruplet, nbr_of_unused_questions) = compute();
 
-        all_valid_quadruplet.iter().for_each(|f| println!("{}", f));
-        println!("Nbr of unused question {}", nbr_of_unused_questions);
-
-        if nbr_of_unused_questions == 0 {
-            break;
-        }
-    }
+    all_valid_quadruplet.iter().for_each(|f| println!("{}", f));
+    println!("Nbr of unused question {}", nbr_of_unused_questions);
 }
 
 fn compute() -> (Vec<Quadruplet<'static>>, u8) {
@@ -332,10 +325,7 @@ fn compute() -> (Vec<Quadruplet<'static>>, u8) {
         .iter()
         .map(|p| (p, 0))
         .collect::<HashMap<_, _>>();
-    let mut repartitions = REPARTITIONS.clone();
-    repartitions.shuffle(&mut thread_rng());
-    println!("{:?}", repartitions);
-    for repartition in repartitions.iter() {
+    for repartition in REPARTITIONS.iter() {
         let mut phrases: Vec<&Phrase> = vec![];
         for domaine in [
             &repartition.0,
@@ -405,7 +395,6 @@ fn compute() -> (Vec<Quadruplet<'static>>, u8) {
         .into_iter()
         .filter_map(|q| q.ok())
         .collect();
-
     println!("number of result {}", all_valid_quadruplet.len());
     let mut nbr_of_unused_questions = 0;
     for (phrase, nbr) in usage_hashmap {
